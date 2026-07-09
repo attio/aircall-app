@@ -1,0 +1,8 @@
+query getPersonPhoneNumbers($recordId: String!) {
+  person(id: $recordId) {
+    name {
+      full_name
+    }
+    phone_numbers
+  }
+}

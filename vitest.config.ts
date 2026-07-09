@@ -1,0 +1,14 @@
+import {defineConfig} from "vitest/config"
+
+export default defineConfig({
+    test: {
+        include: ["src/**/*.test.ts"],
+        passWithNoTests: true,
+        environment: "node",
+        server: {
+            deps: {
+                inline: ["attio"],
+            },
+        },
+    },
+})

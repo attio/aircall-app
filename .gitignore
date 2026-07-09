@@ -1,0 +1,8 @@
+dist
+.DS_Store
+node_modules
+tsconfig.tsbuildinfo
+attio.dev.json
+*.graphql.d.ts
+.attio
+.idea

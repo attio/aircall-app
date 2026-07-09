@@ -1,0 +1,11 @@
+query getCallablePeopleInCompany($recordId: String!) {
+  company(id: $recordId) {
+    name
+    team {
+      name {
+        full_name
+      }
+      phone_numbers
+    }
+  }
+}
