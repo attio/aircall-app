@@ -6,7 +6,7 @@ export default Workflows.defineWorkflowBlock({
     title: "Send message",
     description:
         "Send an SMS from an Aircall number. Best for conversational, per-record sends — high-volume blasts can disrupt agents.",
-    schema: Workflows.ConfigSchema.struct({
+    configSchema: Workflows.ConfigSchema.struct({
         lineId: Workflows.ConfigSchema.string(),
         to: Workflows.ConfigSchema.phoneNumber(),
         body: Workflows.ConfigSchema.string(),
