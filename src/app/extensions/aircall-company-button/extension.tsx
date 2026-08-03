@@ -1,11 +1,11 @@
-import {runQuery, showDialog, showToast, experimental_extensions} from "attio/client"
+import {runQuery, showDialog, showToast, Extensions} from "attio/client"
 import type {Person} from "../../../aircall-call-dialog"
 import {AircallCallDialog} from "../../../aircall-call-dialog"
 import {call} from "../../../call"
 import query from "../../../queries/getCallablePeopleInCompany.graphql"
 import getCurrentUser from "../../../queries/getCurrentUser.graphql"
 
-export default experimental_extensions.defineExtension({
+export default Extensions.defineExtension({
     type: "record-action",
     id: "aircall-company-button",
     onTrigger: async ({recordId}) => {

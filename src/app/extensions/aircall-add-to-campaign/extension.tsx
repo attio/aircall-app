@@ -1,5 +1,5 @@
 import {isErrored} from "@attio/fetchable"
-import {alert, runQuery, showToast, experimental_extensions} from "attio/client"
+import {alert, runQuery, showToast, Extensions} from "attio/client"
 import addNumbersToDialerCampaign from "../../../add-numbers-to-dialer-campaign.server"
 import getAircallUser from "../../../get-aircall-user.server"
 import getCurrentUserQuery from "../../../queries/getCurrentUser.graphql"
@@ -8,7 +8,7 @@ import {createLogger} from "../../../utils/logger"
 
 const logger = createLogger("aircall-add-to-campaign action")
 
-export default experimental_extensions.defineExtension({
+export default Extensions.defineExtension({
     type: "bulk-record-action",
     id: "aircall-add-to-campaign",
     onTrigger: async ({runRecordBatches}) => {
