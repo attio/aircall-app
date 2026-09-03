@@ -1,7 +1,7 @@
 import {isErrored} from "@attio/fetchable"
 import {kv} from "attio/server"
 import {formatDuration} from "date-fns"
-import {type AircallInsightContent, pushInsightCard} from "../../aircall-api/calls"
+import {type AircallInsightContent, getCallSummary, pushInsightCard} from "../../aircall-api/calls"
 import {payloadSchema} from "../../aircall-api/webhook-events"
 import {createNote} from "../../create-note"
 import {findPersonRecord} from "../../find-person-record"
@@ -157,6 +157,18 @@ Started at: ${startedAt.toLocaleString()}
             }
             if (call.asset) {
                 content += `\n\nRecording: [${call.asset}](${call.asset})`
+            }
+
+            // Best-effort: assumes call.ended always fires after Aircall's AI summary is ready
+            // (see PR #131 for the webhook-based alternative in case that assumption turns
+            // out to be false). A missing summary (no AI Assist add-on, or genuinely not ready yet)
+            const summaryResult = await getCallSummary(call.id)
+            if (isErrored(summaryResult)) {
+                logger.error(
+                    `No AI summary for call ${call.id}: ${summaryResult.error.errorMessage}`
+                )
+            } else {
+                content += `\n\nAI Summary: ${summaryResult.value}`
             }
 
             const lockKey = createLockKey(call.id)

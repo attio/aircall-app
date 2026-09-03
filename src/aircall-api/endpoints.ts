@@ -43,6 +43,11 @@ export const endpoints = {
     insightCards: (callId: number) => `${AIRCALL_API_BASE_URL}/calls/${callId}/insight_cards`,
 
     /**
+     * @see https://developer.aircall.io/api-references/#retrieve-a-summary
+     */
+    callSummary: (callId: number) => `${AIRCALL_API_BASE_URL}/calls/${callId}/summary`,
+
+    /**
      * @see https://developer.aircall.io/api-references/#create-a-webhook
      */
     webhooks: `${AIRCALL_API_BASE_URL}/webhooks`,
