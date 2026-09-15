@@ -27,7 +27,10 @@ export default Workflows.defineWorkflowBlockTrigger(block, async (req, {config, 
 
     const parsed = callEndedPayloadSchema.safeParse(body)
     if (!parsed.success) {
-        logger.error("Unexpected call.ended payload", {uniqueActivationId})
+        logger.error("Unexpected call.ended payload", {
+            uniqueActivationId,
+            issues: parsed.error.issues,
+        })
         return {type: "no-op"}
     }
 

@@ -1,23 +1,18 @@
 import type {Workflows} from "attio/server"
+import {type Direction, toDirection} from "../../../../aircall-api/call-direction"
+import {type Agent, toAgent, toDate} from "../../../../aircall-api/call-outcome-fields"
 import {toAircallContact} from "../../../../aircall-api/contact"
 import {toContactPhone} from "../../../../aircall-api/phone"
 import type {Call} from "../../../../aircall-api/webhook-events"
-import {type Direction, MISSED_CALL_REASONS, type MissedCallReason} from "./constants"
+import {createLogger} from "../../../../utils/logger"
+import {MISSED_CALL_REASONS, type MissedCallReason} from "./constants"
+
+const logger = createLogger("aircall-call-ended-trigger to-outcome")
 
 type ContactPhone = Workflows.PhoneNumberValue | undefined
 type AircallContact = ReturnType<typeof toAircallContact>
-type Agent = {id?: number; name?: string; email?: string}
 type Comment = {id: number; content: string; postedAt?: Date}
 type Tag = {id: number; name: string}
-
-/** Aircall call timestamps are UNIX seconds (UTC); outcome timestamps are JS `Date`s. */
-const toDate = (seconds: number): Date => new Date(seconds * 1000)
-
-const toAgent = (user: Call["user"]) => ({
-    id: user?.id,
-    name: user?.name,
-    email: user?.email,
-})
 
 const toComments = (comments: Call["comments"]) =>
     (comments ?? []).map((comment) => ({
@@ -33,9 +28,18 @@ const toMissedCallReason = (reason: string | null | undefined): MissedCallReason
         ? (reason as MissedCallReason)
         : undefined
 
+/** Logs once per call so an unrecognized direction from Aircall isn't silently dropped. */
+function resolveDirection(call: Call): Direction | undefined {
+    const direction = toDirection(call.direction)
+    if (direction === undefined) {
+        logger.error(`Unrecognized call direction "${call.direction}"`, {callId: call.id})
+    }
+    return direction
+}
+
 type AnsweredData = {
     callId: number
-    direction: Direction
+    direction?: Direction
     startedAt: Date
     answeredAt: Date
     endedAt: Date
@@ -55,7 +59,7 @@ export function buildAnswered(call: Call): AnsweredData {
     const answeredAt = call.answered_at as number
     return {
         callId: call.id,
-        direction: call.direction as Direction,
+        direction: resolveDirection(call),
         startedAt: toDate(call.started_at),
         answeredAt: toDate(answeredAt),
         endedAt: toDate(call.ended_at),
@@ -73,7 +77,7 @@ export function buildAnswered(call: Call): AnsweredData {
 
 type MissedData = {
     callId: number
-    direction: Direction
+    direction?: Direction
     startedAt: Date
     endedAt: Date
     contactPhone: ContactPhone
@@ -90,7 +94,7 @@ type MissedData = {
 export function buildMissed(call: Call): MissedData {
     return {
         callId: call.id,
-        direction: call.direction as Direction,
+        direction: resolveDirection(call),
         startedAt: toDate(call.started_at),
         endedAt: toDate(call.ended_at),
         contactPhone: toContactPhone(call.raw_digits),

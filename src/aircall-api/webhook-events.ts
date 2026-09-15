@@ -195,3 +195,36 @@ export const messageReceivedPayloadSchema = z.object({
     event: z.literal("message.received"),
     data: messageSchema,
 })
+
+/**
+ * `call.comm_assets_generated` fires once per call, only when a recording was made or a voicemail
+ * was left, so recording/voicemail links can arrive after `call.ended` (which may not have them
+ * yet). Per Aircall's docs, `data` is the full Call object — same shape as `call.ended`.
+ *
+ * @see https://developer.aircall.io/docs/introduction
+ */
+export const callCommAssetsGeneratedPayloadSchema = z.object({
+    ...envelope,
+    event: z.literal("call.comm_assets_generated"),
+    data: callSchema,
+})
+
+/**
+ * `summary.created` (Conversation Intelligence / AI Assist add-on). `call_id` is a numeric string
+ * here, unlike the plain numbers on Call events.
+ *
+ * @see https://developer.aircall.io/docs/ai-call-summaries
+ */
+const summaryDataSchema = z.object({
+    call_id: z.coerce.number(),
+    content: opt(z.string()),
+    number_id: opt(z.number()),
+})
+
+export type SummaryData = z.infer<typeof summaryDataSchema>
+
+export const summaryCreatedPayloadSchema = z.object({
+    ...envelope,
+    event: z.literal("summary.created"),
+    data: summaryDataSchema,
+})

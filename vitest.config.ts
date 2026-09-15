@@ -10,5 +10,8 @@ export default defineConfig({
                 inline: ["attio"],
             },
         },
+        alias: {
+            "attio/server": new URL("./src/__mocks__/attio-server.ts", import.meta.url).pathname,
+        },
     },
 })

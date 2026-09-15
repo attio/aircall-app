@@ -29,7 +29,7 @@ The App SDK is a set of components and functionality to build apps that are embe
 - **Record actions** — `aircall-call-person-action` (click-to-call a person) and `aircall-call-company-action` (call a company), surfaced on Attio record pages.
 - **Bulk record action** — `aircall-add-to-dialer-campaign-action` adds the phone numbers of multiple selected records to an Aircall dialer campaign.
 - **Workflow step blocks** — `aircall-add-to-dialer-campaign` (add numbers to a dialer campaign) and `aircall-send-message` (send an SMS via an Aircall number).
-- **Workflow trigger blocks** — `aircall-call-ended-trigger` (fires when an Aircall call ends) and `aircall-message-received-trigger` (fires on inbound SMS), each with their own `activate`/`deactivate` lifecycle.
+- **Workflow trigger blocks** — `aircall-call-ended-trigger` (fires when an Aircall call ends), `aircall-message-received-trigger` (fires on inbound SMS), `aircall-recording-ready-trigger` (fires when a call recording/voicemail link becomes available), and `aircall-call-summary-trigger` (fires when an AI call summary is ready, requires the AI Assist add-on), each with their own `activate`/`deactivate` lifecycle.
 - **Webhook** — `webhooks/event.webhook.ts` receives Aircall webhook events (`call.created`, `call.ended`, message events) and fans them out to triggers / note creation.
 - **Connection events** — `events/connection-added.event.ts` and `events/connection-removed.event.ts` register and tear down the Aircall webhook when a workspace connects/disconnects Aircall.
 

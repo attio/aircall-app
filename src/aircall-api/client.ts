@@ -67,20 +67,20 @@ async function request<T>(
             } catch {
                 logger.error("Invalid JSON response from Aircall")
                 return errored({
-                    statusCode: response.status,
+                    code: "UNEXPECTED_ERROR",
                     errorMessage: "Invalid response from Aircall",
                 })
             }
         } catch (error) {
             const message = error instanceof Error ? error.message : "unknown_error"
             logger.error(message)
-            return errored({statusCode: 0, errorMessage: message})
+            return errored({code: "UNEXPECTED_ERROR", errorMessage: message})
         }
     }
 
     // Unreachable: the loop always returns or continues, and the final iteration's 429 path
     // falls through to `!response.ok` and returns there.
-    return errored({statusCode: 429, errorMessage: "Aircall rate limit exhausted"})
+    return errored({code: "RATE_LIMITED", errorMessage: "Aircall rate limit exhausted"})
 }
 
 async function get<T>(

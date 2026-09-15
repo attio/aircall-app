@@ -1,19 +1,7 @@
 import {Workflows} from "attio/client"
-import {DIRECTIONS, MISSED_CALL_REASONS} from "./constants"
-
-const aircallContactStruct = Workflows.OutcomeSchema.struct({
-    id: Workflows.OutcomeSchema.number().optional(),
-    name: Workflows.OutcomeSchema.string().optional(),
-    firstName: Workflows.OutcomeSchema.string().optional(),
-    lastName: Workflows.OutcomeSchema.string().optional(),
-    companyName: Workflows.OutcomeSchema.string().optional(),
-})
-
-const agentStruct = Workflows.OutcomeSchema.struct({
-    id: Workflows.OutcomeSchema.number().optional(),
-    name: Workflows.OutcomeSchema.string().optional(),
-    email: Workflows.OutcomeSchema.string().optional(),
-})
+import {DIRECTIONS} from "../../../../aircall-api/call-direction"
+import {agentStruct, aircallContactStruct} from "../../../../aircall-api/outcome-structs"
+import {MISSED_CALL_REASONS} from "./constants"
 
 const commentStruct = Workflows.OutcomeSchema.struct({
     id: Workflows.OutcomeSchema.number(),
@@ -28,7 +16,7 @@ const tagStruct = Workflows.OutcomeSchema.struct({
 
 export const answeredOutcomeSchema = Workflows.OutcomeSchema.struct({
     callId: Workflows.OutcomeSchema.number(),
-    direction: Workflows.OutcomeSchema.stringEnum([...DIRECTIONS]),
+    direction: Workflows.OutcomeSchema.stringEnum([...DIRECTIONS]).optional(),
     startedAt: Workflows.OutcomeSchema.timestamp(),
     answeredAt: Workflows.OutcomeSchema.timestamp(),
     endedAt: Workflows.OutcomeSchema.timestamp(),
@@ -47,7 +35,7 @@ export const answeredOutcomeSchema = Workflows.OutcomeSchema.struct({
 
 export const missedOutcomeSchema = Workflows.OutcomeSchema.struct({
     callId: Workflows.OutcomeSchema.number(),
-    direction: Workflows.OutcomeSchema.stringEnum([...DIRECTIONS]),
+    direction: Workflows.OutcomeSchema.stringEnum([...DIRECTIONS]).optional(),
     startedAt: Workflows.OutcomeSchema.timestamp(),
     endedAt: Workflows.OutcomeSchema.timestamp(),
     contactPhone: Workflows.OutcomeSchema.phoneNumber().optional(),

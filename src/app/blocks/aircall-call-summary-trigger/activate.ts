@@ -10,8 +10,8 @@ export default Workflows.defineWorkflowBlockActivate(block, async ({metadata}) =
         connection: getWorkspaceConnection(),
         uniqueActivationId,
         triggerCallbackUrl,
-        customName: `attio-message-received-${uniqueActivationId}`,
-        events: ["message.received"],
+        customName: `attio-call-summary-${uniqueActivationId}`,
+        events: ["summary.created"],
         storageKey: webhookStorageKey(uniqueActivationId),
     })
 })

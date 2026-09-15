@@ -59,20 +59,24 @@ export default Workflows.defineWorkflowBlockExecute(block, async ({config}) => {
     const result = await sendNativeMessage(lineId, {to, body, userId})
 
     if (isErrored(result)) {
-        const {statusCode, errorMessage} = result.error
+        const {code, errorMessage} = result.error
 
-        // 4xx (other than rate limit) means "this message will never succeed" — a routing decision.
-        if (statusCode >= 400 && statusCode < 500 && statusCode !== 429) {
-            // 403 is a company/line setup or plan-tier problem the author must fix — hard error.
-            if (statusCode === 403) {
-                logger.error(`Aircall denied the send (403): ${errorMessage}`)
-                return {
-                    type: "error",
-                    errorMessage: `Aircall denied the send: ${errorMessage}`,
-                    retryable: false,
-                }
+        // UNAUTHORIZED/FORBIDDEN mean the connection or line setup itself is broken (bad token,
+        // missing plan tier/permission) — a hard error the workspace author must fix, not a
+        // per-message routing decision.
+        if (code === "UNAUTHORIZED" || code === "FORBIDDEN") {
+            logger.error(`Aircall denied the send (${code}): ${errorMessage}`)
+            return {
+                type: "error",
+                errorMessage: `Aircall denied the send: ${errorMessage}`,
+                retryable: false,
             }
-            logger.log(`Aircall rejected the send (${statusCode}): ${errorMessage}`)
+        }
+
+        // A rejected request (bad recipient, invalid body, ...) means "this message will never
+        // succeed" — a routing decision, not a retryable failure.
+        if (code === "INVALID_REQUEST" || code === "NOT_FOUND") {
+            logger.log(`Aircall rejected the send (${code}): ${errorMessage}`)
             // Echo back the typed phone value we were given (already E.164-normalized by the input).
             return {
                 type: "outcome",
@@ -81,14 +85,14 @@ export default Workflows.defineWorkflowBlockExecute(block, async ({config}) => {
             }
         }
 
-        if (statusCode === 429) {
+        if (code === "RATE_LIMITED") {
             return {type: "error", errorMessage: "Aircall rate limit (120 RPM)", retryable: true}
         }
 
         // 5xx is non-retryable on purpose: Aircall exposes no idempotency key on this endpoint, so
         // a retry of a request that actually went through would double-send a billable SMS.
-        if (statusCode >= 500) {
-            logger.error(`Aircall server error (${statusCode}): ${errorMessage}`)
+        if (code === "AIRCALL_API_ERROR") {
+            logger.error(`Aircall server error: ${errorMessage}`)
             return {
                 type: "error",
                 errorMessage: `Aircall server error: ${errorMessage}`,
@@ -96,7 +100,7 @@ export default Workflows.defineWorkflowBlockExecute(block, async ({config}) => {
             }
         }
 
-        // statusCode 0 = network failure / unparseable response — no send happened, safe to retry.
+        // UNEXPECTED_ERROR = network failure / unparseable response — no send happened, safe to retry.
         return {type: "error", errorMessage, retryable: true}
     }
 

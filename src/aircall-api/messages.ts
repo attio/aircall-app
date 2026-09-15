@@ -16,7 +16,7 @@ export type SendNativeMessageBody = {
 /**
  * Sends via the agent-conversation endpoint so inbound replies keep flowing through the global
  * `message.received` webhook — the same line works bidirectionally with the message-received trigger.
- * Errors are surfaced as-is via `AircallApiError` (with `statusCode`); callers classify them.
+ * Errors are surfaced as-is via `AircallApiError` (with a semantic `code`); callers classify them.
  *
  * @see https://developer.aircall.io/api-references/#send-message-in-agent-conversation
  */

@@ -10,6 +10,6 @@ export default Workflows.defineWorkflowBlockDeactivate(block, async ({metadata})
         connection: getWorkspaceConnection(),
         uniqueActivationId,
         storageKey: webhookStorageKey(uniqueActivationId),
-        triggerLabel: "message-received trigger",
+        triggerLabel: "recording-ready trigger",
     })
 })

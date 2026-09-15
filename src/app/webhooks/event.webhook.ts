@@ -162,6 +162,7 @@ Started at: ${startedAt.toLocaleString()}
             // Best-effort: assumes call.ended always fires after Aircall's AI summary is ready
             // (see PR #131 for the webhook-based alternative in case that assumption turns
             // out to be false). A missing summary (no AI Assist add-on, or genuinely not ready yet)
+            // Observed in practice reliably 404ing here — worth a better approach than this best-effort read.
             const summaryResult = await getCallSummary(call.id)
             if (isErrored(summaryResult)) {
                 logger.error(

@@ -65,7 +65,7 @@ export async function getCallSummary(callId: number): AsyncResult<string, Aircal
     const result = await aircallApi.get(endpoints.callSummary(callId))
     if (isErrored(result)) {
         logger.error(
-            `Failed to fetch summary for call ${callId} (status ${result.error.statusCode}): ${result.error.errorMessage}`
+            `Failed to fetch summary for call ${callId} (${result.error.code}): ${result.error.errorMessage}`
         )
         return result
     }
