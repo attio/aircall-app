@@ -1,13 +1,21 @@
 import {Workflows} from "attio/server"
 
 /**
- * Build an Attio phone-number outcome value from an Aircall counterparty number. Returns
- * `undefined` for an unusable number (e.g. an anonymous caller).
+ * Aircall sends the text "anonymous" for a hidden caller ID. A number with no digits matches all
+ * the records that have a phone number.
  */
-export function toContactPhone(value: string | undefined): Workflows.PhoneNumberValue | undefined {
+export function normalizeCounterpartyPhone(value: string | undefined): string | undefined {
     if (!value) return undefined
-    const trimmed = value.trim()
-    if (trimmed.length === 0 || /anonymous/i.test(trimmed)) return undefined
 
-    return Workflows.OutcomeValue.phoneNumber(trimmed) ?? undefined
+    const trimmed = value.trim()
+    if (/anonymous/i.test(trimmed) || !/\d/.test(trimmed)) return undefined
+
+    return trimmed
+}
+
+export function toContactPhone(value: string | undefined): Workflows.PhoneNumberValue | undefined {
+    const normalized = normalizeCounterpartyPhone(value)
+    if (!normalized) return undefined
+
+    return Workflows.OutcomeValue.phoneNumber(normalized) ?? undefined
 }

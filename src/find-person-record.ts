@@ -17,7 +17,7 @@ const schema = z.array(
     })
 )
 
-export async function findPersonRecord(phoneNumber: string): Promise<Array<{
+export type PersonMatch = {
     id: {
         workspace_id: string
         object_id: string
@@ -27,8 +27,13 @@ export async function findPersonRecord(phoneNumber: string): Promise<Array<{
     job_title: string | undefined
     location: string | undefined
     web_url: string
-}> | null> {
+}
+
+export async function findPersonRecord(phoneNumber: string): Promise<PersonMatch[] | null> {
     const normalizedPhoneNumber = phoneNumber.replace(/[^0-9]/g, "")
+    // An empty number matches all the records that have a phone number.
+    if (normalizedPhoneNumber.length === 0) return null
+
     const response = await fetch("https://api.attio.com/v2/objects/people/records/query", {
         method: "POST",
         headers: {

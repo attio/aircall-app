@@ -1,10 +1,16 @@
 import {isErrored} from "@attio/fetchable"
-import {kv} from "attio/server"
 import {formatDuration} from "date-fns"
 import {type AircallInsightContent, getCallSummary, pushInsightCard} from "../../aircall-api/calls"
-import {payloadSchema} from "../../aircall-api/webhook-events"
+import {normalizeCounterpartyPhone} from "../../aircall-api/phone"
+import {type Call, payloadSchema} from "../../aircall-api/webhook-events"
+import {
+    acquireCallNoteLock,
+    completeCallNoteLock,
+    recordPartialCallNotes,
+    releaseCallNoteLock,
+} from "../../call-note-lock"
 import {createNote} from "../../create-note"
-import {findPersonRecord} from "../../find-person-record"
+import {findPersonRecord, type PersonMatch} from "../../find-person-record"
 import {createLogger} from "../../utils/logger"
 
 const logger = createLogger("aircall webhook")
@@ -25,41 +31,119 @@ function abbreviatedDuration(durationInSeconds: number): string {
     return `${durationInSeconds}s`
 }
 
-const createLockKey = (callId: number) => `call-lock-${callId}`
+async function buildNote(
+    call: Call,
+    phoneNumber: string,
+    startedAt: Date
+): Promise<{title: string; content: string}> {
+    // Aircall omits the user when nobody answered the call.
+    const agentName = call.user?.name ?? "Unknown"
+    const numberDigits = call.number?.digits ?? "unknown number"
+    const callDuration = call.duration ?? 0
+    const title = call.answered_at
+        ? `Call with ${agentName} (${abbreviatedDuration(callDuration)})`
+        : `Missed call from ${agentName}`
+    let content = `Call from ${agentName} (${numberDigits}) to ${phoneNumber}.
 
-async function getLock(
-    lockKey: string,
-    retry: boolean = true
-): Promise<"locked" | "processed" | "lock-failed"> {
-    const existingCallState = await kv.get(lockKey)
-
-    if (existingCallState === null) {
-        await kv.set(lockKey, "pending", {ttlInSeconds: 30})
-
-        return "locked"
+${
+    call.answered_at
+        ? `Call lasted ${formatDuration({seconds: callDuration})}.
+Started at: ${startedAt.toLocaleString()}
+`
+        : `Call was not answered after ${formatDuration({seconds: callDuration})}.
+Started at: ${startedAt.toLocaleString()}
+`
+}`
+    if (call.comments && call.comments.length > 0) {
+        content += `\n\nNotes: \n${call.comments.map((c) => c.content).join("\n")}`
+    }
+    if (call.asset) {
+        content += `\n\nRecording: [${call.asset}](${call.asset})`
     }
 
-    switch (existingCallState.value) {
-        case "pending": {
-            if (retry) {
-                await new Promise((resolve) => setTimeout(resolve, 5000))
-
-                return await getLock(lockKey, false)
-            } else {
-                return "lock-failed"
-            }
-        }
-        case "processed": {
-            return "processed"
-        }
-        default: {
-            logger.error("Unexpected call state", existingCallState)
-            return "lock-failed"
-        }
+    // We assume that Aircall makes the AI summary before the call.ended event. A 404 error is
+    // usual: a call of less than 60 seconds and an account without the AI Assist add-on get no
+    // summary. If users report that the summary is missing, append it from the `summary.created`
+    // webhook event instead.
+    const summaryResult = await getCallSummary(call.id)
+    if (isErrored(summaryResult)) {
+        logger.error(`No AI summary for call ${call.id}: ${summaryResult.error.errorMessage}`)
+    } else {
+        content += `\n\nAI Summary: ${summaryResult.value}`
     }
+
+    return {title, content}
 }
 
-const PROCESSED_LOCK_TTL = 60 * 60 * 4 // 4 hours
+async function handleCallEnded(call: Call, phoneNumber: string): Promise<Response> {
+    const lock = await acquireCallNoteLock(call.id)
+
+    switch (lock.status) {
+        case "already-processed":
+            logger.log(`Call ${call.id} already processed, skipping`)
+            return new Response(null, {status: 200})
+        case "busy":
+            // Answer 500 so that Aircall sends the event again if the other handler stops
+            // before it writes the notes.
+            logger.log(`Call ${call.id} is already being processed, skipping`)
+            return new Response(null, {status: 500})
+        case "acquired":
+            break
+    }
+
+    let people: PersonMatch[] | null
+    try {
+        people = await findPersonRecord(phoneNumber)
+    } catch (error) {
+        logger.error(`Failed to look up person records for call ${call.id}`, error)
+        await releaseCallNoteLock(call.id, [...lock.alreadyNoted])
+        return new Response(null, {status: 500})
+    }
+
+    if (!people) {
+        logger.log(`No matching person record for call ${call.id}, skipping`)
+        await releaseCallNoteLock(call.id, [...lock.alreadyNoted])
+        return new Response(null, {status: 200})
+    }
+    logger.log(`Matched ${people.length} person record(s) for call ${call.id}`)
+
+    const startedAt = new Date(call.started_at * 1000)
+    const {title, content} = await buildNote(call, phoneNumber, startedAt)
+
+    const targets = people.filter((person) => !lock.alreadyNoted.has(person.id.record_id))
+    if (targets.length === 0) {
+        logger.log(`All notes for call ${call.id} already exist, skipping`)
+        await completeCallNoteLock(call.id, [...lock.alreadyNoted])
+        return new Response(null, {status: 200})
+    }
+
+    // One failed write must not discard the writes that were successful.
+    const results = await Promise.allSettled(
+        targets.map((person) =>
+            createNote(person.id.record_id, title, content, startedAt.toISOString())
+        )
+    )
+    const noted = [
+        ...lock.alreadyNoted,
+        ...targets
+            .filter((_, index) => results[index]?.status === "fulfilled")
+            .map((person) => person.id.record_id),
+    ]
+    const failures = results.filter((result) => result.status === "rejected")
+
+    if (failures.length === 0) {
+        logger.log(`Created ${targets.length} note(s) for call ${call.id}`)
+        await completeCallNoteLock(call.id, noted)
+        return new Response(null, {status: 200})
+    }
+
+    logger.error(
+        `Failed to create ${failures.length} of ${targets.length} note(s) for call ${call.id}`,
+        ...failures.map((failure) => failure.reason)
+    )
+    await recordPartialCallNotes(call.id, noted)
+    return new Response(null, {status: 500})
+}
 
 export default async function webhookHandler(req: Request): Promise<Response> {
     const body = await req.json()
@@ -69,33 +153,29 @@ export default async function webhookHandler(req: Request): Promise<Response> {
     if (!payloadResult.success) {
         logger.error("Unexpected payload", payloadResult.error)
 
-        // Return 200 on unparseable payloads so Aircall doesn't retry pointlessly.
+        // Answer 200: Aircall must not send an unusable payload again.
         return new Response(null, {status: 200})
     }
 
     const payload = payloadResult.data
     logger.log(`Received ${payload.event} for call ${payload.data.id}`)
 
-    // raw_digits is the counterparty number we match a Person against; nullish on anonymous calls.
-    const phoneNumber = payload.data.raw_digits
+    // raw_digits is the number of the other party.
+    const phoneNumber = normalizeCounterpartyPhone(payload.data.raw_digits)
     if (!phoneNumber) {
-        logger.log(`Call ${payload.data.id} has no counterparty number (raw_digits), skipping`)
+        logger.log(`Call ${payload.data.id} has no usable counterparty number, skipping`)
         return new Response(null, {status: 200})
     }
 
-    const people = await findPersonRecord(phoneNumber)
-    if (!people) {
-        logger.log(
-            `No matching person record for ${phoneNumber} (call ${payload.data.id}), skipping`
-        )
-        return new Response(null, {status: 200})
-    }
-    logger.log(`Matched ${people.length} person record(s) for call ${payload.data.id}`)
-
-    const startedAt = new Date(payload.data.started_at * 1000)
     const {event} = payload
     switch (event) {
         case "call.created": {
+            const people = await findPersonRecord(phoneNumber)
+            if (!people) {
+                logger.log(`No matching person record for call ${payload.data.id}, skipping`)
+                return new Response(null, {status: 200})
+            }
+
             const [person] = people
             const contents: AircallInsightContent[] = []
             if (person.name) {
@@ -131,88 +211,8 @@ export default async function webhookHandler(req: Request): Promise<Response> {
             }
             break
         }
-        case "call.ended": {
-            const call = payload.data
-            // Nullish in the lenient schema (e.g. `user` absent on unanswered calls); fall back
-            // rather than drop the event.
-            const agentName = call.user?.name ?? "Unknown"
-            const numberDigits = call.number?.digits ?? "unknown number"
-            const callDuration = call.duration ?? 0
-            const title = call.answered_at
-                ? `Call with ${agentName} (${abbreviatedDuration(callDuration)})`
-                : `Missed call from ${agentName}`
-            let content = `Call from ${agentName} (${numberDigits}) to ${phoneNumber}.
-
-${
-    call.answered_at
-        ? `Call lasted ${formatDuration({seconds: callDuration})}.
-Started at: ${startedAt.toLocaleString()}
-`
-        : `Call was not answered after ${formatDuration({seconds: callDuration})}.
-Started at: ${startedAt.toLocaleString()}
-`
-}`
-            if (call.comments && call.comments.length > 0) {
-                content += `\n\nNotes: \n${call.comments.map((c) => c.content).join("\n")}`
-            }
-            if (call.asset) {
-                content += `\n\nRecording: [${call.asset}](${call.asset})`
-            }
-
-            // Best-effort: assumes call.ended always fires after Aircall's AI summary is ready
-            // (see PR #131 for the webhook-based alternative in case that assumption turns
-            // out to be false). A missing summary (no AI Assist add-on, or genuinely not ready yet)
-            // Observed in practice reliably 404ing here — worth a better approach than this best-effort read.
-            const summaryResult = await getCallSummary(call.id)
-            if (isErrored(summaryResult)) {
-                logger.error(
-                    `No AI summary for call ${call.id}: ${summaryResult.error.errorMessage}`
-                )
-            } else {
-                content += `\n\nAI Summary: ${summaryResult.value}`
-            }
-
-            const lockKey = createLockKey(call.id)
-
-            const existingCallState = await getLock(lockKey)
-
-            switch (existingCallState) {
-                case "processed":
-                    logger.log(`Call ${call.id} already processed, skipping`)
-                    return new Response(null, {status: 200})
-                case "lock-failed":
-                    logger.log(`Could not acquire lock for call ${call.id}`)
-                    return new Response(null, {status: 500})
-                case "locked": {
-                    await Promise.all(
-                        people.map((person) =>
-                            createNote(person.id.record_id, title, content, startedAt.toISOString())
-                        )
-                    )
-                        .then(async () => {
-                            logger.log(`Created ${people.length} note(s) for call ${call.id}`)
-                            // If we successfully create the note, we set the lock
-                            // to processed so we don't process same call again
-                            await kv.set(lockKey, "processed", {
-                                ttlInSeconds: PROCESSED_LOCK_TTL,
-                            })
-                        })
-                        .catch(async (error) => {
-                            logger.error(`Failed to create note(s) for call ${call.id}`, error)
-
-                            await kv.delete(lockKey)
-
-                            throw error
-                        })
-
-                    return new Response(null, {status: 200})
-                }
-                default: {
-                    logger.error("Unexpected call state", existingCallState)
-                    return new Response(null, {status: 500})
-                }
-            }
-        }
+        case "call.ended":
+            return await handleCallEnded(payload.data, phoneNumber)
         default:
             payload satisfies never
             logger.error("Unexpected event", event)
