@@ -47,8 +47,12 @@ async function request<T>(
             logger.log(`${requestLabel} (${response.status})`)
 
             if (response.status === 429 && attempt < MAX_RETRIES) {
-                const retryAfter = response.headers.get("Retry-After")
-                const delay = retryAfter ? parseInt(retryAfter, 10) * 1000 : RATE_LIMIT_FALLBACK_MS
+                const retryAfterSeconds = Number.parseInt(
+                    response.headers.get("Retry-After") ?? "",
+                    10
+                )
+                const delay =
+                    retryAfterSeconds >= 0 ? retryAfterSeconds * 1000 : RATE_LIMIT_FALLBACK_MS
                 await new Promise((resolve) => setTimeout(resolve, delay))
                 continue
             }
