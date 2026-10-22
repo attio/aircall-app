@@ -8,7 +8,7 @@ This repository contains an app built with the Attio App SDK.
 
 ### What the app does
 
-Aircall integration for Attio. It lets users place calls and manage Aircall telephony directly from Attio records and workflows: click-to-call a person or company, add phone numbers to an Aircall dialer campaign, send SMS messages, and react to inbound Aircall activity (calls ending, messages received) as workflow triggers. Call and message activity is written back to Attio as notes. Webhooks are registered automatically when a workspace connects Aircall and deregistered on disconnect.
+Aircall integration for Attio. It lets users place calls and manage Aircall telephony directly from Attio records and workflows: click-to-call a person or company, add phone numbers to an Aircall dialer campaign, send SMS messages, and react to inbound Aircall activity (calls ending, messages received) as workflow triggers. Call and message activity is written back to Attio as notes, and calls are logged as Attio activities. Webhooks are registered automatically when a workspace connects Aircall and deregistered on disconnect.
 
 ### What is the App SDK?
 
@@ -31,22 +31,24 @@ The App SDK is a set of components and functionality to build apps that are embe
 - **Workflow step blocks** — `aircall-add-to-dialer-campaign` (add numbers to a dialer campaign) and `aircall-send-message` (send an SMS via an Aircall number).
 - **Workflow trigger blocks** — `aircall-call-ended-trigger` (fires when an Aircall call ends), `aircall-message-received-trigger` (fires on inbound SMS), `aircall-recording-ready-trigger` (fires when a call recording/voicemail link becomes available), and `aircall-call-summary-trigger` (fires when an AI call summary is ready, requires the AI Assist add-on), each with their own `activate`/`deactivate` lifecycle.
 - **Webhook** — `webhooks/event.webhook.ts` receives Aircall webhook events (`call.created`, `call.ended`, message events) and fans them out to triggers / note creation.
-- **Connection events** — `events/connection-added.event.ts` and `events/connection-removed.event.ts` register and tear down the Aircall webhook when a workspace connects/disconnects Aircall.
+- **Connection events** — `events/connection-added.event.ts` and `events/connection-removed.event.ts` register and tear down the Aircall webhook when a workspace connects/disconnects Aircall. `connection-added` also creates the app's Attio activities.
 
 ## Source folder structure
 
-| Path                     | Description                                                                                  |
-| ------------------------ | -------------------------------------------------------------------------------------------- |
-| `src/app.ts`             | App manifest — declares record actions and bulk actions.                                     |
+| Path                     | Description                                                                                                                      |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| `src/app/extensions/`    | Record actions and the bulk action, one folder per extension (`extension.tsx`).                                                  |
 | `src/aircall-api/`       | Aircall REST API client: `client.ts` (fetch + retry/rate-limit), endpoints, Zod schemas, auth/url helpers, domain error mapping. |
-| `src/blocks/`            | Workflow blocks — one folder per block (`block.ts`, `execute.ts`/`trigger.ts`, `configurator.tsx`, `lib/`). |
-| `src/webhooks/`          | `event.webhook.ts` — inbound Aircall webhook handler.                                         |
-| `src/events/`            | Connection lifecycle handlers that (de)register the Aircall webhook.                          |
-| `src/server/`            | Server-only data fetchers (Aircall numbers, users).                                          |
-| `src/queries/`           | GraphQL queries + generated `.d.ts` for reading Attio record phone numbers / current user.   |
-| `src/utils/`             | Shared helpers (`logger.ts`).                                                                 |
-| `src/assets/`            | App icon and static assets.                                                                   |
-| `src/*.ts` / `src/*.tsx` | Record-action entry points, the call dialog, note creation, and person-record lookup.        |
+| `src/attio/rest/`        | Attio REST API client for activities, which the SDK doesn't cover.                                                               |
+| `src/activities/`        | Attio activity definitions, their setup on connect, and the call activity write.                                                 |
+| `src/app/blocks/`        | Workflow blocks — one folder per block (`block.ts`, `execute.ts`/`trigger.ts`, `configurator.tsx`, `lib/`).                      |
+| `src/app/webhooks/`      | `event.webhook.ts` — inbound Aircall webhook handler.                                                                            |
+| `src/app/events/`        | Connection lifecycle handlers that (de)register the Aircall webhook.                                                             |
+| `src/server/`            | Server functions that list Aircall numbers and users for configurators.                                                          |
+| `src/queries/`           | GraphQL queries + generated `.d.ts` for reading Attio record phone numbers / current user.                                       |
+| `src/utils/`             | Shared helpers (`logger.ts`).                                                                                                    |
+| `src/assets/`            | App icon and static assets.                                                                                                      |
+| `src/*.ts` / `src/*.tsx` | Server functions (`*.server.ts`), the call dialog, note creation, the call note lock and person-record lookup.                   |
 
 ## External service
 
@@ -54,6 +56,17 @@ The App SDK is a set of components and functionality to build apps that are embe
 - **API:** REST — `https://api.aircall.io` (docs: https://developer.aircall.io).
 - **Auth:** workspace connection; an `Authorization` header is built from the stored connection credentials (`buildAuthorizationHeader`). Use `getWorkspaceConnection()` for normal calls and pass an explicit `connection` for connection-lifecycle events.
 - **Rate limit:** 120 requests/minute per company. The client reacts to `429` with `Retry-After` and retries up to 3 times.
+
+## Attio activities
+
+- Calls are logged to `aircall_calls`, a custom activity on Attio's `calls` schema plus the app's attributes in `src/activities/activity-definitions.ts`. The SDK has no activity APIs, so `src/attio/rest/` calls the REST API with `ATTIO_API_TOKEN`.
+- Workspaces keep the attributes they have: add to `activity-definitions.ts`, never rename or retype.
+- `connection-added` creates what's missing after registering the webhook; a `409` means another setup won, and failures are logged. `connection-removed` leaves activities in place.
+- `call.ended` upserts on `aircall_call_id` for the people with the counterparty's number, then writes the notes (`src/activities/call-activity.ts`). A missing activity or attribute is repaired and the write retried once. A transient failure answers `500` so Aircall resends; any other rejection is logged.
+- The agent goes into `participants` (and `caller` on outbound calls) as a plain email: Attio links the workspace member, else a person with that email, else creates the person. Only a plain email links a member; `target_record_reference` matches people only. Apps don't check membership themselves. The agent is never in `linked_records`.
+- No links to Aircall: the direct recording and voicemail URLs expire within an hour, the asset page only exists when there is a recording, and Aircall has no web page for a call. The notes keep linking the asset page.
+- Scopes: `activity_configuration:read-write`, `activity_record:read-write`, `object_configuration:read`, `record_permission:read-write` (creating the agent's person record needs write).
+- Attio errors are logged with emails and phone numbers redacted (`src/utils/redact-personal-data.ts`).
 
 ## Environment
 

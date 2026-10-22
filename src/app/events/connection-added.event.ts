@@ -1,5 +1,6 @@
 import {isErrored} from "@attio/fetchable"
 import {type Connection, createWebhookHandler, updateWebhookHandler} from "attio/server"
+import {ensureActivities} from "../../activities/ensure-activities"
 import {createWebhook} from "../../aircall-api/webhooks"
 import {createLogger} from "../../utils/logger"
 
@@ -28,4 +29,7 @@ export default async function connectionAdded({connection}: {connection: Connect
     })
 
     logger.log(`Registered Aircall webhook ${result.value.webhookId}`)
+
+    // Failures are logged; the first activity write repairs what's missing.
+    await ensureActivities()
 }

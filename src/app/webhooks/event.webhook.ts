@@ -1,8 +1,10 @@
 import {isErrored} from "@attio/fetchable"
 import {formatDuration} from "date-fns"
+import {logCallActivity} from "../../activities/call-activity"
 import {type AircallInsightContent, getCallSummary, pushInsightCard} from "../../aircall-api/calls"
 import {normalizeCounterpartyPhone} from "../../aircall-api/phone"
 import {type Call, payloadSchema} from "../../aircall-api/webhook-events"
+import {isTransientAttioError} from "../../attio/rest/error"
 import {
     acquireCallNoteLock,
     completeCallNoteLock,
@@ -106,6 +108,20 @@ async function handleCallEnded(call: Call, phoneNumber: string): Promise<Respons
         return new Response(null, {status: 200})
     }
     logger.log(`Matched ${people.length} person record(s) for call ${call.id}`)
+
+    // The activity goes first: a retry can't duplicate an upsert the way it could a note.
+    const activityResult = await logCallActivity({call, people, phoneNumber})
+    if (isErrored(activityResult)) {
+        const {code} = activityResult.error
+        if (isTransientAttioError(activityResult.error)) {
+            logger.error(`Could not log call ${call.id} as an activity (${code}), will retry`)
+            await releaseCallNoteLock(call.id, [...lock.alreadyNoted])
+            return new Response(null, {status: 500})
+        }
+        logger.error(
+            `Attio rejected the activity for call ${call.id} (${code}), writing notes only`
+        )
+    }
 
     const startedAt = new Date(call.started_at * 1000)
     const {title, content} = await buildNote(call, phoneNumber, startedAt)

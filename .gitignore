@@ -6,3 +6,5 @@ attio.dev.json
 *.graphql.d.ts
 .attio
 .idea
+.env
+.env.local
